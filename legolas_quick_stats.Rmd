@@ -121,9 +121,9 @@ metadata <- fanfiction_names_df %>%
 
 
 
-## Surabhi Stats
+# Surabhi Stats
 
-### 1 Most Commonly Used Tags
+## 1 Most Commonly Used Tags
 
 
 ```{r}
@@ -146,7 +146,7 @@ tag_popularity <- metadata %>%
                     mutate (engagement = per_day_Num_kudos/per_day_Num_hits) %>% 
   filter(!Tags %in% Warnings$Warning) %>%
   group_by(Tags) %>%
-  summarise (count = n(), mean_engagement = mean(engagement))
+  summarise (count = n(), mean_engagement = round(mean(engagement),4))
                    
 ```
 The following table measures two things: the number of times the tag occurs and the mean engagement. Engagement is measured as the ratio of people who give a kudos divided by the number of people who visit. Therefore, sites with a certain tag are not necessarily the most engaged. This is all **raw** data. It also uses content warnings, which some users also enter in the tags. The tags have not been wrangled. There are `r nrow(tag_popularity)` The table indicates the top 100.
@@ -179,7 +179,7 @@ tag_tokens <- metadata %>%
               ungroup() %>%
               group_by(word) %>% 
               count(word) %>% 
-              mutate(percent = n/nrow(metadata)) %>% 
+              mutate(percent = round(n/nrow(metadata)*100,2)) %>% 
               ungroup() %>% 
               slice_max(order_by = n, n= 250)
 
@@ -194,7 +194,7 @@ tag_tokens %>%
 ```
 
 
-### 2 NGRAMs
+## 2 NGRAMs
 
 ```{r}
 ngram_top_thousand <-  read_csv("ngram_top_thousand_2022-02-15.csv")
@@ -212,7 +212,7 @@ ngram_top_250_table
 
 ```
 
-### 3 Distinct Words
+## 3 Distinct Words
 
 This is the distinct words total top 250. The full list is available on the CSV
 
@@ -231,7 +231,7 @@ top_n(n=50) %>%
 ```
 
 
-### 4 Total Comments and Percent
+## 4 Total Comments and Percent
 
 ```{r}
 comments_summary <- fanfiction_names_df %>% 
@@ -252,7 +252,7 @@ comments_summary %>%
 
 ```
 
-### 5 Texts greater 1 like per day
+## 5 Texts greater 1 like per day
 
 ```{r}
 likes_per_day <- metadata %>% 
