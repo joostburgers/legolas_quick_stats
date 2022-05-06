@@ -1,0 +1,1418 @@
+---
+title: "Fanfiction Analysis"
+author: "Johannes Burgers"
+date: "1/20/2022"
+output: rmdformats::html_clean
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'index.html')) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE)
+```
+
+
+## libraries
+
+The following analysis makes use of the `tidyverse` suite of tools, along with help from `quanteda` and `qdap` for tokenization and cleaning.
+
+```{r load_libraries, message=FALSE, warning=FALSE}
+
+library(tidytext)
+library(tidyverse)
+library(rmdformats)
+library(htmlTable)
+library(quanteda)
+library(quanteda.textstats)
+library(svMisc)
+library(stringdist)
+
+library(plotly)
+#library(qdap)
+library(scales)
+```
+```{r load_chart_styling, echo=FALSE}
+#Page styling
+
+#This is where you create your own custom color palette for the traces.
+faulkner_colorway = c("#132C53","#F27A18","#ae0700","#79b473","#38726c","#76bed0","#6b2d5c","#448b2d","#e6d812")
+
+faulkner_colorway_highlight_1 = c(
+  "rgba(19, 44, 83, 1)",
+  "rgba(242, 122, 24,.1)",
+  "rgba(174, 7, 0,.05)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)"
+)
+
+faulkner_colorway_highlight_2 = c(
+  "rgba(19, 44, 83, .1)",
+  "rgba(242, 122, 24,1)",
+  "rgba(174, 7, 0,.05)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)"
+)
+
+faulkner_colorway_highlight_3 = c(
+  "rgba(19, 44, 83, .1)",
+  "rgba(242, 122, 24,.1)",
+  "rgba(174, 7, 0,1)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)")
+
+faulkner_colorway_bw = c("#999999", "#777777",	"#555555", "#333333",	
+"#111111")
+
+#This controls the background color for the entire chart. Probably best left white.
+faulkner_paperbackground = c('rgba(255,255,255,0)')
+
+#This controls the background for the plot. Probably best left white.
+faulkner_plotcolor = c('rgba(255,255,255,.3)')
+
+#Margin 
+
+m <- list(l = 50, r = 50, b = 50, t = 50, pad = 4)
+
+m_large <- list(l = 100, r = 100, b = 100, t = 100, pad = 4)
+
+#Caption Style
+
+fig_caption <- "font-family: 'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif; font-weight: normal; font-size:90%"
+
+plot_font <- list(family = "'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif",
+  size = 24,
+  color = '#363636')
+```
+
+```{r set_date}
+#set data variable for versioning
+date <- as.character(Sys.Date())
+```
+
+
+```{r get_files}
+#get files
+
+fanfiction_df <- read_csv("SomeTextLong.csv")
+fanfiction_names_df <- read_csv("SomeNameLong.csv")
+lor_all_files <- read_csv("TextsAboutLOR.csv")
+```
+```{r English_only, echo=TRUE, cache=TRUE}
+#get list of English names
+fanfiction_not_english <- fanfiction_names_df %>% 
+                      filter(Language != "English" | Word_count<10) %>% 
+                      mutate(ID = as.integer(ID)) %>% 
+                        select(ID)
+
+```
+
+```{r generate_small_df, echo=TRUE}
+fanfiction_df_small <-  fanfiction_df %>% 
+                       distinct(ID, Content) %>% 
+                        anti_join(fanfiction_not_english) %>% 
+                        mutate(ID = as.integer(ID))
+```
+```{r eval=FALSE, include=FALSE}
+#trial_comments <- read_csv("comments/Comments1.csv")
+
+#comments_full <- trial_comments %>% 
+                  #separate_rows(Comments, sep = "\\+++")
+```
+
+```{r}
+metadata <- fanfiction_names_df %>% 
+            left_join((fanfiction_df %>% select(!(Content))))
+```
+
+
+
+```{r get_comments, eval=FALSE, include=FALSE}
+
+files <- dir(path = "comments/", pattern = "*.csv")
+comments_temp = NULL
+comments_full = NULL
+
+
+comments_temp <- files[1:300] %>% 
+                map(~ read_csv(file.path("comments", .), show_col_types = FALSE) %>% 
+                    separate_rows(Comments, sep = "\\+++")) %>%    
+                   reduce(rbind)
+
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+comments_remainder <-  files[301:481] %>% 
+                map(~ read.csv(file.path("comments", .)) %>% 
+                    separate_rows(Comments, sep = "\\+++")) %>%
+                    reduce(rbind) %>% 
+                    drop_na()
+```
+
+
+
+```{r echo=FALSE}
+comments_all <-  files %>% 
+                map(~ read.csv(file.path("comments", .)) %>% 
+                    separate_rows(Comments, sep = "\\+++")) %>%
+                    reduce(rbind) %>% 
+                    drop_na()
+```
+
+
+```{r comments_count}
+comments_summary <- fanfiction_names_df %>% 
+                    mutate (total = sum(Num_comments), percent = Num_comments/sum(Num_comments), mean = mean(Num_comments)) %>% 
+                    select(Title:ID, Num_comments, total:mean) %>% 
+                  top_n(percent, n=100)
+
+```
+
+
+## Surabhi Stats
+
+### 1 Most Commonly Used Tags
+
+The following table measures two things: the number of times the tag occurs and the mean engagement. Engagement is measured as the ratio of people who give a kudos divided by the number of people who visit. Therefore, sites with a certain tag are not necessarily the most engaged. This is all **raw** data. It also uses content warnings, which some users also enter in the tags. The tags have not been wrangled. The table indicates the top 100.
+
+```{r}
+Warnings <- metadata %>% 
+            separate_rows(Warning, sep = ",") %>% 
+            mutate(Warning = str_trim(Warning)) %>% 
+            distinct(Warning) %>% 
+            mutate(Warning = str_to_lower(Warning)) %>% 
+            add_row(Warning = 'creator chose not to use archive warnings')
+  
+
+tag_popularity <- metadata %>% 
+                    group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    mutate(Tags = str_trim(Tags)) %>% 
+                    mutate(Tags = str_remove_all(Tags, "[[:punct:]]")) %>%  
+                    mutate(Tags = str_to_lower(Tags)) %>% 
+                    select(-Num_chapters) %>% 
+  mutate(across(c(Num_kudos, Num_hits),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))  %>% 
+                    mutate (engagement = per_day_Num_kudos/per_day_Num_hits) %>% 
+  filter(!Tags %in% Warnings$Warning) %>%
+  group_by(Tags) %>%
+  summarise (count = n(), mean_engagement = mean(engagement))
+                   
+```
+The following table measures two things: the number of times the tag occurs and the mean engagement. Engagement is measured as the ratio of people who give a kudos divided by the number of people who visit. Therefore, sites with a certain tag are not necessarily the most engaged. This is all **raw** data. It also uses content warnings, which some users also enter in the tags. The tags have not been wrangled. There are `r nrow(tag_popularity)` The table indicates the top 100.
+
+```{r}
+tag_popularity %>% 
+   slice_max(order_by = count,n= 100)
+```
+
+#### Wrangled Tags
+These tags need to be consolidated somehow. Unfortunately, there is no quick and easy way to do this. An interesting proxy is simply looking at the most common token in each tag. That is, the most common words in all the tags. I filtered out only unique counts to prevent double counting (i.e. works with multiple tags that contained the word Legolas). Thus, 91% of all works mention Legolas at least once in their tag, and 15 percent mention fluff.
+
+```{r}
+tag_tokens <- metadata %>% 
+              group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    mutate(Tags = str_trim(Tags)) %>% 
+                    mutate(Tags = str_remove_all(Tags, "[[:punct:]]")) %>%  
+                    mutate(Tags = str_to_lower(Tags)) %>% 
+                    filter(!Tags %in% Warnings$Warning) %>%
+                      unnest_tokens(word, Tags) %>%  
+              group_by(ID, word) %>% 
+              distinct(word) %>% 
+              anti_join(stop_words)  %>% 
+              ungroup() %>%
+              group_by(word) %>% 
+              count(word) %>% 
+              mutate(percent = n/nrow(metadata)) %>% 
+              ungroup() %>% 
+              slice_max(order_by = n, n= 250)
+
+```
+
+```{r}
+tag_tokens
+```
+
+
+### 2 NGRAMs
+
+```{r}
+ngram_top_thousand <-  read_csv("ngram_top_thousand_2022-02-15.csv")
+```
+
+
+```{r}
+ngram_top_250_table <- ngram_top_thousand %>% 
+                      top_n(n=250) %>% 
+                addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 250 ngrams")
+
+ngram_top_250_table
+
+```
+
+### 3 Distinct Words
+
+This is the distinct words total top 250. The full list is available on the CSV
+
+```{r}
+distinct_words <- read_csv("distinct_words_total2022-02-15.csv")
+```
+
+
+```{r}
+distinct_words %>% 
+top_n(n=50) %>% 
+                addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 50 distinct words")
+
+```
+
+
+### 4 Total Comments and Percent
+
+```{r}
+comments_summary
+```
+
+### 5 Texts greater 1 like per day
+
+```{r}
+likes_per_day <- metadata %>% 
+                  select(-Num_chapters) %>% 
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}")) %>% 
+                  filter(per_day_Num_hits>1) %>%
+                  select(Title:ID, per_day_Num_hits)
+
+```
+
+In total, `r nrow(likes_per_day` have more than one like per day.
+
+```{r}
+likes_per_day %>% 
+  top_n(100)  %>% 
+  arrange(desc(per_day_Num_hits))
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+bigrams <- comments_all %>% 
+           unnest_ngrams(word, Comments, n = 2) %>% 
+           count(word)
+
+
+```
+
+
+```{r metadata}
+
+metadata <- fanfiction_names_df %>% 
+            left_join((fanfiction_df %>% select(!(Content))))
+
+write_csv(metadata, "metadata.csv")
+```
+
+## Corpus Overview
+
+The *Legolas* corpus is a subset of an extremely large corpus. For the sake of text processing, all non-English texts have been removed from the *Legolas* corpus. That said, on occasion there may be non-English words interspersed within these texts.
+
+
+```{r overview}
+total_words <- NULL
+
+lor_all_words <- lor_all_files %>% 
+                  summarise(total_words = sum(Word_count)) %>% 
+                  mutate(corpus = "Lord of the Rings")
+
+legolas_all_words <- fanfiction_names_df %>% 
+  summarise(total_words = sum(Word_count)) %>% 
+  mutate(corpus = "Legolas All Languages")
+
+legolas_all_words_english <- fanfiction_names_df %>% 
+  filter(Language == "English") %>% 
+  summarise(total_words = sum(Word_count)) %>% 
+  mutate(corpus = "Legolas English")
+
+total_words <- total_words %>% 
+               bind_rows(lor_all_words) %>% 
+                bind_rows(legolas_all_words) %>% 
+               bind_rows(legolas_all_words_english)
+
+
+```
+
+
+```{r overview_plot}
+total_words %>% 
+  ggplot(aes(x=reorder(corpus, total_words), y = total_words, fill = corpus))+
+  geom_bar(stat="identity")+
+           labs(title = "Total Words by Corpus",
+       x = "Corpus on AO3",
+       y = "Total Words in Millions",
+       fill = "Author")+
+  scale_y_continuous(labels = label_number(suffix = " M", scale = 1e-6))
+
+```
+
+## Corpus word count distribution
+
+The corpus consists largely of shorter works. In the fanfiction world this is called "fluff."
+
+
+### Histogram of word count
+
+```{r English_only_first, echo=TRUE, cache=TRUE}
+#get list of English names
+fanfiction_word_histogram <- fanfiction_names_df %>% 
+                      filter(Language != "English" | Word_count<10) %>% 
+                      mutate(ID = as.integer(ID)) %>% 
+                        select(ID, Word_count)
+
+```
+
+
+```{r word_count_histogram}
+
+fanfiction_word_histogram_plot <- fanfiction_word_histogram %>% 
+            plot_ly(x = ~Word_count,
+             type = "histogram",
+             histnorm = "probability",
+             xbins = list(size = 1000)
+             #nbinsx = 40,
+             
+             )
+            
+
+fanfiction_word_histogram_plot
+  
+
+fewer_than_thousand_words <- round(
+                                  nrow(fanfiction_word_histogram %>% 
+                      filter(Word_count<500))/nrow(fanfiction_word_histogram)*100,0)
+
+```
+
+The histogram reveals that around 60% of the works are 5,000 words or fewer. Meanwhile, a full `r fewer_than_thousand_words`% of works have fewer than 1000 words.
+
+
+
+## Case Study 1: Readability
+
+**Assumption** These works are easy to read.
+
+**Thesis** Readability and popularity are inversely correlated. As texts become more complex their popularity goes down.
+
+### Data Creation: Readability
+First, generate an overview of the syntactical and lexical complexity. This can be done with the help of the `quantdata` package [see here for reference](https://towardsdatascience.com/linguistic-complexity-measures-for-text-nlp-e4bf664bd660).
+
+#### Computation: Chunking readability scores
+The following series of functions take the `fanfiction_df` and turn it into a corpus object using only the `ID` and `Content` as variables. The remainder of the `df` is left aside for later joining.
+
+
+
+The following loop runs through the corpus to fetch the readability scores. This function had to be chunked up due to memory issues.
+
+
+```{r get_readbility, eval=FALSE}
+corpus_df <- NULL
+
+for (i in 1:nrow(fanfiction_df_small)) {
+         temp <- NULL
+         temp_readability <- NULL
+         temp_corpus <- NULL
+         temp <-  fanfiction_df_small %>% 
+                   filter (row_number()==i)  
+         temp_corpus <- corpus(temp, docid_field = "ID", text_field = "Content", unique_docnames = TRUE)  
+        temp_readability <- textstat_readability(temp_corpus, c("meanSentenceLength","meanWordSyllables", "Flesch.Kincaid", "Flesch", "Dale.Chall", "Bormuth.GP"), remove_hyphens = TRUE,
+  min_sentence_length = 4, max_sentence_length = 100,
+  intermediate = FALSE)
+                  
+         corpus_df <- corpus_df %>% 
+                     bind_rows(temp_readability)
+      
+progress(i/nrow(fanfiction_df_small), progress.bar = TRUE)
+Sys.sleep(0.01)
+}
+
+```
+
+```{r, eval=FALSE}
+write_csv(corpus_df, "readability_scores.csv")
+```
+
+```{r read_readability_scores}
+corpus_df_updates <- read_csv("readability_scores.csv")
+
+```
+
+
+```{r readability_plot}
+
+readability_plot <- as_tibble(corpus_df_updates) %>% 
+  filter(meanSentenceLength < 25) %>% 
+  mutate(across(meanSentenceLength:Bormuth.GP, as.double)) %>% 
+  pivot_longer(!document, names_to = "test", values_to = "score") %>%
+  filter(score >0) %>% 
+  ggplot(aes(score, fill = test)) +
+  geom_histogram(
+    color = "black",
+    opacity = .8 ,
+    alpha = .3,
+    position = "identity"
+  ) +
+  scale_fill_brewer(palette = "Pastel1") +
+  labs(title = "Histograms of Readability Scores",
+       x = "Test",
+       y = "Count",
+       fill = "Readability Test") +
+  facet_wrap( ~ test, scales = "free") +
+  theme_classic()
+
+readability_plot
+```
+
+The distribution across readability scores is relatively regular with tests providing contradictory information. Depending on the test the texts are either really simple or complex. 
+
+## Principal Component Analysis
+
+The following chart takes the reading score and tests whether a variance within the reading score causes a variance in the popularity variables. There does not appear to be any relationship as the explained variance of PC1 and PC2 is low.
+
+
+```{r principal_component_tibble}
+principal_components <- as_tibble(corpus_df_updates) %>% 
+  mutate(ID = as.integer(document)) %>% 
+  left_join(metadata) %>% 
+  mutate(days = Sys.Date() - as.Date(Date_published)) %>%
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(days), .names = "per_day_{.col}")) %>% 
+    select(where(is.numeric)) %>%
+  select(!(Num_chapters:Num_hits)) %>% 
+    filter(across(is.double,  ~ . > 0)) %>%
+  drop_na()
+```
+```{r flesch_and_flesch_kincaid}
+flesch_readability <- principal_components %>% 
+                      select(starts_with(c("Flesch", "word", "per_day","ID"))) %>% 
+                      select(!contains("Chapter")) %>% 
+                      filter(Flesch < 100 & Flesch.Kincaid <10)
+```
+
+
+```{r flesch_principal}
+X <- subset(flesch_readability, select = -c(ID, Word_count))
+prin_comp <- prcomp(X, rank = 2)
+components <- prin_comp[["x"]]
+components <- data.frame(components)
+components <- cbind(components, flesch_readability$ID)
+components$PC2 <- -components$PC2
+explained_variance <- summary(prin_comp)[["sdev"]]
+explained_variance <- explained_variance[1:2]
+comp <- prin_comp[["rotation"]]
+comp[,'PC2'] <- - comp[,'PC2']
+loadings <- comp
+
+for (i in seq(explained_variance)){
+  loadings[,i] <- comp[,i] * explained_variance[i]
+}
+
+features = flesch_readability %>% 
+            select(!(ID)) %>% 
+           pivot_longer(1:ncol(flesch_readability)-1) %>% 
+           distinct(name)
+features_loading = features$name
+
+plot_pca <-
+  plot_ly(
+    components,
+    x = ~ PC1,
+    y = ~ PC2,
+   type = 'scatter',
+    mode = 'markers'
+  ) %>%
+  layout(
+    title = list(text = 'PCA Reading Score and Popularity'),
+    legend = list(title = list(text = 'Work')),
+    xaxis = list(title = "0"),
+    yaxis = list(title = "1"),
+    showlegend = TRUE,
+    paper_bgcolor = faulkner_paperbackground,
+    plot_bgcolor = faulkner_plotcolor,
+     margin = m,
+    font = list(family = "'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif",
+  size = 16, color = '#363636'),
+    modebar = list(bgcolor = faulkner_paperbackground)
+  )
+
+for (i in seq(length(features_loading)-1)) {
+ plot_pca <- plot_pca %>%
+    add_segments(
+      x = 0,
+      xend = loadings[i, 1],
+      y = 0,
+      yend = loadings[i, 2],
+      line = list(color = 'black'),
+      inherit = FALSE,
+      showlegend = FALSE
+    ) %>%
+    add_annotations(
+      x = loadings[i, 1],
+      y = loadings[i, 2],
+      ax = 0,
+      ay = 0,
+      text = features_loading[i],
+      xanchor = 'center',
+      yanchor = 'bottom'
+    )
+}
+
+plot_pca
+```
+
+## Principal Component Analysis: Popularity and Relationships
+
+
+```{r}
+fanfiction_pairings <- metadata %>%
+  group_by(ID) %>%
+  separate_rows(Pairing, sep = ",") %>%
+  mutate(Pairing = str_trim(Pairing)) %>% 
+  pivot_wider(
+    names_from = Pairing,
+    values_from = Pairing,
+    values_fn = list(Pairing = length),
+    values_fill = 0
+  ) %>%
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))   %>%
+  select(!starts_with(c("Num_","Date")))  %>% 
+  select(-c(Title:Comments)) %>% 
+  pivot_longer(2:8)
+
+```
+```{r}
+fanfiction_pairings_long <- metadata %>%
+  group_by(ID) %>%
+  separate_rows(Pairing, sep = ",") %>%
+  mutate(Pairing = str_trim(Pairing)) %>%  
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))   %>%
+  select(!starts_with(c("Num_","Date"))) %>%   
+  select(-c(Rating, Warning)) %>% 
+  select(-c(Complete:Comments)) %>% 
+  select(!contains("Chapter"))
+
+```
+
+
+```{r pairing_PCA}
+
+Pairings <- subset(fanfiction_pairings_long, select = -c(Title:Pairing))
+prin_comp <- prcomp(Pairings, rank = 2)
+components <- prin_comp[["x"]]
+components <- data.frame(components)
+components <- cbind(components, Pairing = fanfiction_pairings_long$Pairing)
+components$PC2 <- -components$PC2
+explained_variance <- summary(prin_comp)[["sdev"]]
+explained_variance <- explained_variance[1:2]
+comp <- prin_comp[["rotation"]]
+comp[,'PC2'] <- - comp[,'PC2']
+loadings <- comp
+
+for (i in seq(explained_variance)){
+  loadings[,i] <- comp[,i] * explained_variance[i]
+}
+
+features = fanfiction_pairings_long %>% 
+            ungroup() %>% 
+            select(-c(Title:Pairing)) %>%  
+           pivot_longer(everything()) %>% 
+           distinct(name)
+features_loading = features$name
+
+plot_pca <-
+  plot_ly(
+    components,
+    x = ~ PC1,
+    y = ~ PC2,
+   type = 'scatter',
+    mode = 'markers',
+   name = ~ Pairing
+  ) %>%
+  layout(
+    title = list(text = 'PCA Pairing and Popularity'),
+    legend = list(title = list(text = 'Pairing')),
+    xaxis = list(title = "0"),
+    yaxis = list(title = "1"),
+    showlegend = TRUE,
+    paper_bgcolor = faulkner_paperbackground,
+    plot_bgcolor = faulkner_plotcolor,
+     margin = m,
+    font = list(family = "'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif",
+  size = 16, color = '#363636'),
+    modebar = list(bgcolor = faulkner_paperbackground)
+  )
+
+for (i in seq(4)) {
+ plot_pca <- plot_pca %>%
+    add_segments(
+      x = 0,
+      xend = loadings[i, 1],
+      y = 0,
+      yend = loadings[i, 2],
+      line = list(color = 'black'),
+      inherit = FALSE,
+      showlegend = FALSE
+    ) %>%
+    add_annotations(
+      x = loadings[i, 1],
+      y = loadings[i, 2],
+      ax = 0,
+      ay = 0,
+      text = features_loading[i],
+      xanchor = 'center',
+      yanchor = 'bottom'
+    )
+}
+
+plot_pca
+
+```
+No relationship between Pairing and popularity. Works that have specific pairings do not stick together in terms of their popularity.
+
+
+## Scatter Plot of word_count popularity
+
+```{r}
+Popularity <- metadata %>%
+  select(-Num_chapters) %>% 
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))   %>%
+  pivot_longer(starts_with("per_day"))
+```
+
+
+```{r}
+Popularity_plot <-  Popularity %>% 
+                    plot_ly(
+                      x = ~Date_published,
+                      y = ~Word_count,
+                      size = ~value,
+                      name = ~name
+                    )
+
+#Popularity_plot
+
+
+
+```
+
+## Box plot word count by year
+
+It does not appear that the word count points to texts getting shorter. The Interquartile Range for text length steadily increases till about 2016 and then starts to decrease. This does not appear to be patterned.
+
+```{r}
+boxplot <- Popularity %>% 
+            mutate(Date_published = str_sub(Date_published,1,4)) %>% 
+            distinct(ID, Word_count, Date_published) %>% 
+            plot_ly(
+            y = ~Word_count, 
+            color = ~Date_published, 
+            type = "box",
+            boxpoints = "suspectedoutliers"
+            )
+boxplot <- boxplot %>% 
+            layout(
+              title = list(text = "Word Count across Years"),
+              yaxis = list(range = c(0, 50000), text = "Word Count")
+            )
+              
+
+boxplot
+
+
+```
+
+
+How do pairings change over the years.
+
+
+```{r popularity_by_year}
+
+pairings_by_year <-  metadata %>%
+  group_by(ID) %>%
+  separate_rows(Pairing, sep = ",") %>%
+  mutate(Pairing = str_trim(Pairing)) %>%
+  ungroup() %>% 
+  mutate(Date_published = as.integer(str_sub(Date_published,1,4))) %>% 
+  ungroup() %>% 
+  pivot_wider(
+    c(Date_published),
+    names_from = Pairing,
+    names_prefix = "Pairing_",
+    values_from = Pairing,
+    values_fn = list(Pairing = length),
+    values_fill = 0
+  ) %>% 
+  pivot_longer(starts_with("Pairing_"), names_to = "Pairing") %>% 
+  group_by(Date_published) %>% 
+  mutate(percent = value/sum(value)) %>% 
+  arrange(Date_published) %>% 
+  ungroup()
+  
+```
+ 
+ 
+Pairings by year in percent. The first year is distorting because there are very few stories.
+
+```{r}
+
+pairing_line_chart <- pairings_by_year %>% 
+              plot_ly(
+                x = ~Date_published,
+                y = ~percent,
+                name = ~Pairing,
+                type = "scatter",
+                mode = "markers+lines"
+                        ) %>% layout(
+              title = list(text = "Pairing as a Percentage of Works Tagged per Year"),
+              yaxis = list(title = "Percent",  tickformat = ",.0%"),
+              xaxis = list(title = "Year")
+            )
+
+pairing_line_chart
+
+```
+
+Content warnings by year
+
+```{r}
+Warning_by_year <-  metadata %>%
+  group_by(ID) %>%
+  separate_rows(Warning, sep = ",") %>%
+  mutate(Warning = str_trim(Warning)) %>%
+  ungroup() %>% 
+  mutate(Date_published = as.integer(str_sub(Date_published,1,4))) %>% 
+  ungroup() %>% 
+  pivot_wider(
+    c(Date_published),
+    names_from = Warning,
+    names_prefix = "Warning_",
+    values_from = Warning,
+    values_fn = list(Warning = length),
+    values_fill = 0
+  ) %>% 
+  pivot_longer(starts_with("Warning_"), names_to = "Warning") %>% 
+  group_by(Date_published) %>% 
+  mutate(percent = value/sum(value)) %>% 
+  arrange(Date_published) %>% 
+  ungroup()
+```
+
+
+```{r}
+warning_line_chart <- Warning_by_year %>% 
+              plot_ly(
+                x = ~Date_published,
+                y = ~percent,
+                name = ~Warning,
+                type = "scatter",
+                mode = "markers+lines"
+                        )%>% layout(
+              title = list(text = "Warning as a Percentage of Works Tagged per Year"),
+              yaxis = list(title = "Percent",  tickformat = ",.0%"),
+              xaxis = list(title = "Year")
+            )
+                
+
+warning_line_chart
+
+```
+
+
+## Popular tag
+
+This is a chart of average popularity by tag
+
+
+```{r}
+Warnings <- metadata %>% 
+            separate_rows(Warning, sep = ",") %>% 
+            mutate(Warning = str_trim(Warning)) %>% 
+            distinct(Warning)
+
+tag_popularity <- metadata %>% 
+                    group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    mutate(Tags = str_trim(Tags)) %>%
+                    str_remove_all(Tags, "[:punct:]") %>% 
+                    str_to_lower(Tags) %>% 
+                    select(-Num_chapters) %>% 
+  mutate(across(c(Num_kudos, Num_hits),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))  %>% 
+                    mutate (engagement = per_day_Num_kudos/per_day_Num_hits) %>% 
+                    filter(!Tags %in% Warnings$Warning ) %>% 
+                    group_by(Tags) %>% 
+                    summarise (count = n(), mean_engagement = mean(engagement)) %>%
+                    mutate(index=row_number()) %>% 
+                    filter(count>2)
+                    #anti_join(Warnings) %>% 
+                   # top_n(15, count)
+
+
+tag_popularity_top_15 <- tag_popularity %>% 
+                          top_n(15, count)
+  
+library(tidyverse)
+library(stringdist)
+
+words_grouped <-map_dfr(tag_popularity$Tags, ~ {
+    i <- which(stringdist(., tag_popularity$Tags, "jw") < 0.25)
+    tibble(index = i, title = tag_popularity$Tags[i])
+}, .id = "group") %>%
+    distinct(index, .keep_all = T) %>% 
+    mutate(group = as.integer(group))            
+
+reduced_tag_count <- tag_popularity %>% 
+                     left_join(words_grouped) %>% 
+                     group_by(group) %>% 
+                     summarise(sum(count), mean(mean_engagement), title) %>% 
+                      drop_na()
+
+
+```
+
+This chart shows the popularity of the 15 most common tags. The size of the circle is determined by the count of the particular tag.
+
+
+```{r}
+
+tag_popularity_plot <- tag_popularity_top_15 %>% 
+                        plot_ly(
+                          x = ~Tags,
+                          y = ~mean_engagement,
+                          name = ~Tags,
+                          type = 'scatter',
+                          mode = 'markers',
+                          size = ~count,
+                          sizes = c(5,200)
+                           )
+                        
+
+tag_popularity_plot
+```
+
+Some interesting tags in terms of engagment, which is calculated as the ratio of Kudos to views. That is, how many people who read a certain tag also give it a kudos. The tag list is very complicated and needs to be refined more.
+
+```{r eval=FALSE}
+coocccur_tags <- metadata %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                       mutate(Tags = str_trim(Tags)) %>% 
+                      count(Tags) %>% 
+                      top_n(300)
+#This does not work yet, and perhaps I should make a markoff chain
+
+cooccur_matrix <-  metadata %>% 
+                        separate_rows(Pairing, sep = ",") %>%   
+                        mutate(Pairing = str_trim(Pairing))  %>% 
+                        separate_rows(Tags, sep = ",") %>% 
+                       mutate(Tags = str_trim(Tags)) %>% 
+                        semi_join(coocccur_tags) %>% 
+                        group_by(ID, Pairing) %>% 
+                        count(Tags) %>% 
+                        group_by(Pairing) %>% 
+                        count(Tags) %>% 
+                        top_n(10) %>% 
+                        pivot_wider(
+    names_from = Tags,
+    values_from = Tags,
+    values_fn = list(Tags = length),
+      values_fill = 0,
+    names_prefix = "tag_"
+  ) %>% 
+ # group_by(Pairing) %>% 
+  summarize(across(starts_with("tag_"), ~ sum(.x))) %>% 
+  column_to_rownames(var = "Pairing")
+
+```
+
+```{r eval=FALSE}
+library(cooccur)
+
+cooccur_matrix_object <- 
+  cooccur(
+    mat = cooccur_matrix,
+    type = "spp_site",
+    thresh = FALSE,
+    spp_names = TRUE,
+    true_rand_classifier = 0.1,
+    prob = "comb",
+    site_mask = NULL,
+    only_effects = FALSE,
+    eff_standard = FALSE,
+    eff_matrix = FALSE
+  )
+
+summary(cooccur_matrix_object)
+```
+
+
+
+## Co-Occurrence matrix Tag and Pairing
+
+```{r eval=FALSE}
+coocccur_matrix <- metadata %>% 
+                    group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    separate_rows(Pairing, sep = ",")
+                    mutate(warning_count = 1, pairing_count =1) %>% 
+                    pivot_wider(
+    names_from = Warning,
+    names_prefix = "Warning_",
+    values_from = warning_count,
+    values_fill = 0
+  )
+
+
+```
+
+
+
+
+Convert the `tibble` to a corpus object.
+
+```{r convert_corpus_object, eval = FALSE, echo=FALSE, cache=FALSE}
+# # Creating a corpus
+# mycorpus <- corpus(fanfiction_df_small[7:20,], docid_field = "ID", text_field = "Content", unique_docnames = TRUE)
+```
+
+Get basic descriptive statistics of text complexity. This information will need to be filtered out as some of the texts are clearly not accurately measured or have significant parts on in English.
+
+```{r}
+# mycorpus_small <- corpus(fanfiction_df_small[1:10,], docid_field = "ID", text_field = "Content")
+```
+
+
+```{r}
+# readability_100 <- textstat_readability(fanfiction_df_small, c("meanSentenceLength","meanWordSyllables", "Flesch.Kincaid", "Flesch", "Bormuth.MC", "Strain"), remove_hyphens = TRUE,
+#   min_sentence_length = 1, max_sentence_length = 10000,
+#   intermediate = FALSE) %>% 
+#   mutate(document = as.integer(document))
+
+```
+
+```{r corpus_readability, echo=FALSE, cache=FALSE}
+# readability <- textstat_readability(mycorpus[1:2], c("meanSentenceLength","meanWordSyllables", "Flesch.Kincaid", "Flesch", "Bormuth.MC", "Strain"), remove_hyphens = TRUE,
+#   min_sentence_length = 1, max_sentence_length = 10000,
+#   intermediate = FALSE) %>% 
+#   mutate(document = as.integer(document))
+```
+
+```{r}
+# readability2 <- textstat_readability(mycorpus_small, c("meanSentenceLength","meanWordSyllables", "Flesch.Kincaid", "Flesch"), remove_hyphens = TRUE,
+#   min_sentence_length = 1, max_sentence_length = 10000,
+#   intermediate = FALSE) %>% 
+#   mutate(document = as.integer(document))
+```
+
+
+Join readability scores with author and work details.
+
+```{r generate_author_score_df, echo=TRUE}
+## Join the tibbles back by author ID
+# readability_text <- fanfiction_df %>% 
+#                     select(!(Content)) %>% 
+#                     left_join(readability, by = c("ID" = "document")) %>% 
+#                     left_join(fanfiction_names_df)  
+#                     #filter(Language == "English" | Word_count >2000)  
+                  
+
+```
+
+```{r write_readability}
+# write_csv(readability_text,paste("readability_per_text_",date,".csv", sep=""))
+```
+
+
+- Possible analysis, do a correlation analysis of reading score and likes/kudos or comments.
+
+- Advanced analysis, do PCA of the different variables. 
+
+
+## Tokenizing
+
+Converting text elements to tokens. 
+
+```{r tokenize_corpus, echo=TRUE, cache=TRUE, message=FALSE, eval=FALSE}
+# Tokenisation
+# tok <- tokens(mycorpus, what = "word",
+#                    remove_punct = TRUE,
+#                    remove_symbols = TRUE,
+#                    remove_numbers = TRUE,
+#                    remove_url = TRUE,
+#                    remove_hyphens = FALSE,
+#                    verbose = TRUE, 
+#                    include_docvars = TRUE)
+# tok <- tokens_tolower(tok)
+#  
+# tok <- tokens_select(tok, stopwords("english"), selection = "remove", padding = FALSE)
+```
+
+Measuring lexical diversity through tokens
+
+```{r lexical_diversity, echo=TRUE, cache=TRUE, eval=FALSE}
+# lexical_diversity <- dfm(tok) %>% 
+#   textstat_lexdiv(measure = "TTR")
+
+```
+
+```{r}
+# languages <-  metadata %>% 
+#   distinct(Language)
+```
+
+
+## TTR Table
+
+```{r lexical_diversity_table, echo=TRUE,cache=TRUE, eval = FALSE}
+# lexical_diversity <- lexical_diversity %>% 
+#                       mutate(document = as.numeric(document))
+# 
+# lexical_diversity_table <- fanfiction_df %>% 
+#                     select(!(Content)) %>% 
+#                     left_join(lexical_diversity, by = c("ID" = "document")) %>% 
+#                     left_join(fanfiction_names_df)
+
+```
+```{r write_lexical_diversity, eval = FALSE}
+# write_csv(lexical_diversity_table,paste("lexical_diversity_ttr_",date,".csv", sep=""))
+```
+
+```{r}
+# lexical_diversity_trimmed <- read_csv("lexical_diversity_ttr_2022-01-27.csv")
+# 
+# lexical_diversity_trimmed <- lexical_diversity_trimmed %>% 
+#                               filter(Language == "English") %>% 
+#                               filter(Word_count> 5000) %>% 
+#                               top_n(TTR, n = 10) %>% 
+#                               arrange(desc(TTR)) %>% 
+#                               select(Author, Title, TTR, Summary)
+# 
+# lexical_diversity_trimmed %>% 
+#   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+#                     pos.caption = "bottom") %>%
+#   htmlTable(caption = "Top 10 words based on Type-Token Ratio. Text's closer to 1 are more lexically rich.")
+
+
+```
+
+
+
+## NGRAM
+
+Ngrams had to be created in chunks to account for the heavy memory usage.
+
+```{r generate_ngrams, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, eval=FALSE}
+ngram_df <- NULL
+for (i in 1:nrow(fanfiction_df_small)) {
+         temp <- NULL
+         temp <-  fanfiction_df_small %>% 
+                   filter (row_number()==i) %>% 
+                     group_by(ID) %>%      
+                  unnest_tokens(bigram, Content, token = "ngrams", n = 2) %>% 
+                  separate(bigram, c("word1", "word2"), sep = " ") %>% 
+                  filter(!word1 %in% stop_words$word) %>%
+                  filter(!word2 %in% stop_words$word) %>% 
+                  mutate(bigram = paste(word1,word2, sep = " ")) %>% 
+                  count(bigram, sort = TRUE) %>% 
+                  top_n(n, n = 100)  
+                  
+        
+         ngram_df <- ngram_df %>% 
+                     bind_rows(temp)
+          if (i%%250 == 0) {
+      print(paste("Now processing text ",i," of", nrow(fanfiction_df_small), sep = ""))
+            #added this to make sure R wasn't freezing. 
+    }
+}
+
+```
+
+
+```{r create_top_1000_bigrams, echo=TRUE, cache=FALSE, eval=FALSE}
+
+ngram_total <- ngram_df %>% 
+  group_by(bigram) %>% 
+    summarise(total_bigrams = sum(n)) 
+
+ngram_top_thousand <- ngram_total %>% 
+                      ungroup() %>% 
+                      arrange(desc(total_bigrams)) %>% 
+                      top_n(n=1000)
+
+
+ngram_top_ten_table <- ngram_top_thousand %>% 
+                      top_n(n=50) %>% 
+                addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 50 ngrams")
+
+ngram_top_ten_table
+```
+
+```{r}
+#write_csv(ngram_top_thousand, paste("ngram_top_thousand_",date,".csv", sep = ""))
+```
+
+## Distinct words
+
+Measuring distinct words in a corpus is complex. Heaps' law indicates that the number of unique words is the inverse square of the total number of words. That is as texts get longer their unique words go down because there are only so many words in the English language. A better measure is ![tf-idf](https://en.wikipedia.org/wiki/Tf%E2%80%93idf). The code below does this for the entire corpus, but fetches a lot of false positives, because what it sees as "unique" are actually scraping errors. It's a good way to figure out what will need to be cleaned from the corpus.
+
+
+```{r clean_book_words, echo=TRUE, cache=FALSE, eval=FALSE}
+#Create a clean list of the count of each word in the corpus with contractions removed and possessives stripped, i.e. remove 's.
+
+book_words_clean <- fanfiction_df_small %>% 
+unnest_tokens(word, Content) 
+
+book_words_clean_filtered <- book_words_clean %>% 
+                            filter(!str_detect(word,"['’.]"))
+
+book_words_punctuation <- book_words_clean %>% 
+                            filter(str_detect(word,"['’`.]"))
+
+book_words_punctuation <- book_words_punctuation %>% 
+                          mutate(word = qdap::replace_contraction(word, sent.cap = FALSE))
+
+book_words_punctuation_extended <- book_words_punctuation %>% 
+                          mutate(word = str_remove_all(word,"['’.]")) %>% 
+                          mutate(word = str_remove_all(word, " s")) %>% 
+                          separate_rows(word, sep = " ")
+```
+
+```{r flush_RAM, eval=FALSE}
+# These functions are necessary to reduce the load on memory.
+rm(book_words_clean, book_words_punctuation)
+gc()
+```
+
+
+
+```{r book_words_join, echo=TRUE, cache=TRUE, eval=FALSE}
+book_words_final <- book_words_clean_filtered %>% 
+                    bind_rows(book_words_punctuation_extended)
+```
+
+
+```{r second_RAM_flush, eval=FALSE}
+rm(book_words_clean_filtered, book_words_punctuation_extended)
+gc()
+
+```
+
+
+```{r book_words_final, echo=TRUE, cache=TRUE, eval=FALSE}
+
+book_words_final <- book_words_final %>% 
+                    count(ID, word, name = "nr_words", sort = TRUE) 
+  
+```
+
+Get the total number of words by work.
+
+```{r total_words, echo=TRUE, cache=TRUE, eval=FALSE}
+total_words <- book_words_final %>% 
+  group_by(ID) %>% 
+  summarize(total = sum(nr_words))
+```
+
+Add the totals to the book_words tibble.
+
+```{r book_words_and_totals, echo=TRUE, cache=TRUE, message=FALSE, eval=FALSE}
+book_words_total <- left_join(book_words_final, total_words) 
+
+```
+
+Now calculate the tf_idf
+
+```{r tf_Idf, echo=TRUE, cache=TRUE,eval=FALSE}
+book_tf_idf <- book_words_total %>%
+  bind_tf_idf(word, ID, nr_words)
+```
+
+### TF_IDF table
+
+Thsi table needs to be joined back with the metadata to make some sense of it.
+
+```{r create_TF_IDF_TABLE, message = FALSE}
+# book_tf_idf_table <- fanfiction_df %>% 
+#                     select(!(Content)) %>% 
+#                     left_join(book_tf_idf, by = c("ID" = "ID")) %>% 
+#                     left_join(fanfiction_names_df)
+```
+
+
+
+Get the top 3 distinct words for each book. This is still a lot of data to look through, but it might give an indication as to what is important about each work.
+
+
+```{r distinct_words}
+# distinct_words <- book_tf_idf %>% 
+#   select(-total) %>%
+#   group_by(ID) %>% 
+#   arrange(desc(tf_idf)) %>% 
+#   slice_max(tf_idf, n = 3)
+```
+
+Join the metadata back to the distinct words table. 
+
+
+```{r distinct_words_table}
+# distinct_words_table <-  fanfiction_df %>% 
+#                     select(!(Content)) %>% 
+#                     left_join(distinct_words, by = c("ID" = "ID")) %>% 
+#                     left_join(fanfiction_names_df)
+
+
+ #distinct_words_table %>%  top_n(tf_idf, n=100) %>% 
+  # addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+#                    pos.caption = "bottom") %>%
+#  htmlTable(caption = "Top 100 unique words in the corpus by tf_idf rank and work")
+
+```
+
+```{r}
+# write_csv(distinct_words_table, paste("distinct_words_per_book",date,".csv", sep = ""))
+```
+
+
+
+Distinct words of the corpus.
+
+```{r distinct_words_corpus, echo=TRUE, cache=TRUE}
+# distinct_words_total <- distinct_words %>% 
+#   ungroup() %>% 
+#   anti_join(stop_words) %>% 
+#   group_by(word) %>% 
+#   summarise(total_words = sum(nr_words)) %>% 
+#   arrange(desc(total_words))
+# 
+# 
+# distinct_words_total_table <- distinct_words_total %>% 
+#                               top_n(total_words, n= 50) 
+# 
+# distinct_words_total_table %>% 
+#   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+#                     pos.caption = "bottom") %>%
+#   htmlTable(header = c("Word", "Total Occurrences"),
+#             caption = "Top 50 unique words in the corpus by number or occurrences")
+```
+
+
+```{r write_out_data}
+# write_csv(distinct_words_total_table, paste("distinct_words_total",date,".csv", sep = ""))
+```
+
+
+```{r meta_data_unnest}
+
+# common_pairings <- metadata %>% 
+#                    group_by(ID) %>% 
+#                    separate_rows(Pairing, sep = ",") %>% 
+#                    mutate(Pairing = str_trim(Pairing)) %>% 
+#                    ungroup() %>% 
+#                    group_by(Pairing) %>% 
+#                    count()
+# 
+# common_pairings %>% 
+#  ggplot(aes(x=reorder(Pairing, n), y = n, fill = Pairing))+
+#   geom_bar(stat="identity")+
+#            labs(title = "Most Common Pairing",
+#        x = "Pairing",
+#        y = "Stories with this Pairing"
+#        )
+```
+
+```{r common_tags}
+# common_tags <- metadata %>% 
+#                    group_by(ID) %>% 
+#                    separate_rows(Tags, sep = ",") %>% 
+#                    mutate(Tags = str_trim(Tags)) %>% 
+#                    ungroup() %>% 
+#                    group_by(Tags) %>% 
+#                    count() %>% 
+#                    ungroup() %>% 
+#                    top_n(50) %>% 
+#                    arrange(desc(n))
+# 
+# htmlTable(common_tags)
+```
+```{r common_warnings}
+# common_warnings <- metadata %>% 
+#                    group_by(ID) %>% 
+#                    separate_rows(Warning, sep = ",") %>% 
+#                    mutate(Warning = str_trim(Warning)) %>% 
+#                    ungroup() %>% 
+#                    group_by(Warning) %>% 
+#                    count() %>% 
+#                    ungroup() %>% 
+#                    top_n(50) %>% 
+#                    arrange(desc(n))
+# 
+# common_warnings %>% 
+#  ggplot(aes(x=reorder(Warning, n), y = n, fill = Warning))+
+#   geom_bar(stat="identity")+
+#            labs(title = "Most Common Warning",
+#        x = "Warning",
+#        y = "Stories with this Warning"
+#        )
+```
+```{r top_comments}
+
+# comments_per_day <- metadata %>% 
+#                     mutate(days = Sys.Date() - as.Date(Date_published)) %>% 
+#                     mutate(across(starts_with("Num_"),~.x/as.numeric(days), .names = "{.col}_per_day"))
+
+
+```
+
+
+```{r}
+# write_csv(comments_per_day, "stats_by_days.csv")
+```
+
+
+```{r}
+# warnings_count <- comments_per_day %>% 
+#                   select(ID, Warning, Word_count, Num_comments_per_day:Num_hits_per_day) %>%
+#                   group_by(ID) %>% 
+#                   separate_rows(Warning, sep = ",") %>% 
+#                   mutate (value = 1, Warning = str_squish(Warning)) %>% 
+#                   ungroup() %>%  
+#                   pivot_wider(names_from = Warning, values_from = 1, values_fill = 0)
+```
+
+
+## Fluff fiction analysis
+
+The following section runs all of the same algorithms on the corpus, but it filters out specifically all texts that are less than 4000 words and have been tagged with "fluff"
+
+
+```{r}
+fanfiction_title_author <-  fanfiction_df_small %>% 
+                            left_join(fanfiction_names_df) %>% 
+                            select(ID:Author)
+                            
+```
+```{r}
+for (i in 1:nrow(fanfiction_title_author)){ 
+author <- str_replace_all(fanfiction_title_author$Author[i], "[[:punct:]]", " ")
+title <-  str_extract(str_sub(fanfiction_title_author$Title[i],1, 25),"[:alpha:]+")
+
+print(c(author,title))
+file_name <- paste(author,title,".txt", sep="_")
+write_file(fanfiction_title_author$Content[i], file.path("raw_texts",file_name))
+}
+```
+

@@ -1,0 +1,278 @@
+---
+title: "Legolas Quick Stats"
+author: "Johannes Burgers"
+date: "1/20/2022"
+output: rmdformats::html_clean
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = file.path(dirname(inputFile), 'index.html')) })
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE)
+```
+
+
+```{r load_libraries, message=FALSE, warning=FALSE}
+
+library(tidytext)
+library(tidyverse)
+library(rmdformats)
+library(htmlTable)
+library(quanteda)
+library(quanteda.textstats)
+library(svMisc)
+library(stringdist)
+
+library(plotly)
+#library(qdap)
+library(scales)
+```
+
+```{r load_chart_styling, echo=FALSE}
+#Page styling
+
+#This is where you create your own custom color palette for the traces.
+faulkner_colorway = c("#132C53","#F27A18","#ae0700","#79b473","#38726c","#76bed0","#6b2d5c","#448b2d","#e6d812")
+
+faulkner_colorway_highlight_1 = c(
+  "rgba(19, 44, 83, 1)",
+  "rgba(242, 122, 24,.1)",
+  "rgba(174, 7, 0,.05)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)"
+)
+
+faulkner_colorway_highlight_2 = c(
+  "rgba(19, 44, 83, .1)",
+  "rgba(242, 122, 24,1)",
+  "rgba(174, 7, 0,.05)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)"
+)
+
+faulkner_colorway_highlight_3 = c(
+  "rgba(19, 44, 83, .1)",
+  "rgba(242, 122, 24,.1)",
+  "rgba(174, 7, 0,1)",
+  "rgba(121, 180, 115,.1)",
+  "rgba(56, 114, 108,.1)",
+  "rgba(118, 190, 208,.1)")
+
+faulkner_colorway_bw = c("#999999", "#777777",	"#555555", "#333333",	
+"#111111")
+
+#This controls the background color for the entire chart. Probably best left white.
+faulkner_paperbackground = c('rgba(255,255,255,0)')
+
+#This controls the background for the plot. Probably best left white.
+faulkner_plotcolor = c('rgba(255,255,255,.3)')
+
+#Margin 
+
+m <- list(l = 50, r = 50, b = 50, t = 50, pad = 4)
+
+m_large <- list(l = 100, r = 100, b = 100, t = 100, pad = 4)
+
+#Caption Style
+
+fig_caption <- "font-family: 'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif; font-weight: normal; font-size:90%"
+
+plot_font <- list(family = "'Playfair Display','Helvetica Neue',Helvetica,Arial,sans-serif",
+  size = 24,
+  color = '#363636')
+```
+
+```{r set_date}
+#set data variable for versioning
+date <- as.character(Sys.Date())
+```
+
+
+```{r get_files}
+#get files
+
+fanfiction_df <- read_csv("SomeTextLong.csv")
+fanfiction_names_df <- read_csv("SomeNameLong.csv")
+lor_all_files <- read_csv("TextsAboutLOR.csv")
+```
+
+```{r English_only, echo=TRUE, cache=TRUE}
+#get list of English names
+fanfiction_not_english <- fanfiction_names_df %>% 
+                      filter(Language != "English" | Word_count<10) %>% 
+                      mutate(ID = as.integer(ID)) %>% 
+                        select(ID)
+
+```
+
+```{r generate_small_df, echo=TRUE}
+fanfiction_df_small <-  fanfiction_df %>% 
+                       distinct(ID, Content) %>% 
+                        anti_join(fanfiction_not_english) %>% 
+                        mutate(ID = as.integer(ID))
+```
+
+
+```{r}
+metadata <- fanfiction_names_df %>% 
+            left_join((fanfiction_df %>% select(!(Content))))
+```
+
+
+
+## Surabhi Stats
+
+### 1 Most Commonly Used Tags
+
+
+```{r}
+Warnings <- metadata %>% 
+            separate_rows(Warning, sep = ",") %>% 
+            mutate(Warning = str_trim(Warning)) %>% 
+            distinct(Warning) %>% 
+            mutate(Warning = str_to_lower(Warning)) %>% 
+            add_row(Warning = 'creator chose not to use archive warnings')
+  
+
+tag_popularity <- metadata %>% 
+                    group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    mutate(Tags = str_trim(Tags)) %>% 
+                    mutate(Tags = str_remove_all(Tags, "[[:punct:]]")) %>%  
+                    mutate(Tags = str_to_lower(Tags)) %>% 
+                    select(-Num_chapters) %>% 
+  mutate(across(c(Num_kudos, Num_hits),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}"))  %>% 
+                    mutate (engagement = per_day_Num_kudos/per_day_Num_hits) %>% 
+  filter(!Tags %in% Warnings$Warning) %>%
+  group_by(Tags) %>%
+  summarise (count = n(), mean_engagement = mean(engagement))
+                   
+```
+The following table measures two things: the number of times the tag occurs and the mean engagement. Engagement is measured as the ratio of people who give a kudos divided by the number of people who visit. Therefore, sites with a certain tag are not necessarily the most engaged. This is all **raw** data. It also uses content warnings, which some users also enter in the tags. The tags have not been wrangled. There are `r nrow(tag_popularity)` The table indicates the top 100.
+
+```{r}
+tag_popularity %>% 
+   slice_max(order_by = count,n= 100) %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 100 tags")
+
+  
+```
+
+#### Wrangled Tags
+These tags need to be consolidated somehow. Unfortunately, there is no quick and easy way to do this. An interesting proxy is simply looking at the most common token in each tag. That is, the most common words in all the tags. I filtered out only unique counts to prevent double counting (i.e. works with multiple tags that contained the word Legolas). Thus, 91% of all works mention Legolas at least once in their tag, and 15 percent mention fluff.
+
+```{r}
+tag_tokens <- metadata %>% 
+              group_by(ID) %>% 
+                    separate_rows(Tags, sep = ",") %>% 
+                    mutate(Tags = str_trim(Tags)) %>% 
+                    mutate(Tags = str_remove_all(Tags, "[[:punct:]]")) %>%  
+                    mutate(Tags = str_to_lower(Tags)) %>% 
+                    filter(!Tags %in% Warnings$Warning) %>%
+                      unnest_tokens(word, Tags) %>%  
+              group_by(ID, word) %>% 
+              distinct(word) %>% 
+              anti_join(stop_words)  %>% 
+              ungroup() %>%
+              group_by(word) %>% 
+              count(word) %>% 
+              mutate(percent = n/nrow(metadata)) %>% 
+              ungroup() %>% 
+              slice_max(order_by = n, n= 250)
+
+```
+
+```{r}
+tag_tokens %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 250 words in tags")
+
+```
+
+
+### 2 NGRAMs
+
+```{r}
+ngram_top_thousand <-  read_csv("ngram_top_thousand_2022-02-15.csv")
+```
+
+
+```{r}
+ngram_top_250_table <- ngram_top_thousand %>% 
+                      top_n(n=250) %>% 
+                addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 250 ngrams")
+
+ngram_top_250_table
+
+```
+
+### 3 Distinct Words
+
+This is the distinct words total top 250. The full list is available on the CSV
+
+```{r}
+distinct_words <- read_csv("distinct_words_total2022-02-15.csv")
+```
+
+
+```{r}
+distinct_words %>% 
+top_n(n=50) %>% 
+                addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 50 distinct words")
+
+```
+
+
+### 4 Total Comments and Percent
+
+```{r}
+comments_summary <- fanfiction_names_df %>% 
+                    mutate (total = sum(Num_comments), percent = round((Num_comments/sum(Num_comments)*100), 4), mean = round(mean(Num_comments),2)) %>% 
+                    select(Title:ID, Num_comments, total:mean) %>% 
+                  top_n(percent, n=100)
+
+```
+
+
+
+
+```{r}
+comments_summary %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Total Comments and Percent")
+
+```
+
+### 5 Texts greater 1 like per day
+
+```{r}
+likes_per_day <- metadata %>% 
+                  select(-Num_chapters) %>% 
+  mutate(across(starts_with("Num_"),  ~ .x / as.numeric(Sys.Date() - as.Date(Date_published)), .names = "per_day_{.col}")) %>% 
+                  filter(per_day_Num_hits>1) %>%
+                  mutate(per_day_Num_hits = round(per_day_Num_hits,2)) %>% 
+                  select(Title:ID, per_day_Num_hits)
+
+```
+
+In total, `r nrow(likes_per_day)` have more than one like per day.
+
+```{r}
+likes_per_day %>% 
+  top_n(100)  %>% 
+  arrange(desc(per_day_Num_hits)) %>% 
+   addHtmlTableStyle(col.rgroup = c("none", "#F5FBFF"),
+                    pos.caption = "bottom") %>%
+  htmlTable(caption = "Top 100 likes per day")
+
+```
+
