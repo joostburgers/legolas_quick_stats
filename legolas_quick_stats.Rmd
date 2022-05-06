@@ -262,9 +262,11 @@ likes_per_day <- metadata %>%
                   mutate(per_day_Num_hits = round(per_day_Num_hits,2)) %>% 
                   select(Title:ID, per_day_Num_hits)
 
+likes_per_day_percent <- nrow(likes_per_day)/nrow(metadata)
+
 ```
 
-In total, `r nrow(likes_per_day)` have more than one like per day.
+In total, `r nrow(likes_per_day)` of `r nrow(metadata)` have more than one like per day or about `r round(likes_per_day_percent*100,0)`%.
 
 ```{r}
 likes_per_day %>% 
